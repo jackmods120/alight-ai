@@ -4,9 +4,7 @@ export const runtime = 'edge';
 
 export async function POST(req) {
   try {
-    // خوێندنەوەی body بە شێوازی text سەرەتا
     const bodyText = await req.text();
-    
     if (!bodyText || bodyText.trim() === '') {
       return Response.json({ error: 'پرسیار بنووسە' }, { status: 400 });
     }
@@ -14,72 +12,61 @@ export async function POST(req) {
     let message = '';
     try {
       const parsed = JSON.parse(bodyText);
-      message = parsed.message || '';
+      message = (parsed.message || '').trim();
     } catch {
       return Response.json({ error: 'JSON هەڵەیە' }, { status: 400 });
     }
 
-    if (!message.trim()) {
+    if (!message) {
       return Response.json({ error: 'پرسیار بوش نەبێت' }, { status: 400 });
     }
 
-    const GEMINI_KEY = process.env.GEMINI_API_KEY;
-    if (!GEMINI_KEY) {
-      return Response.json({ error: 'API key نییە' }, { status: 500 });
+    const GROQ_KEY = process.env.GROQ_API_KEY;
+    if (!GROQ_KEY) {
+      return Response.json({ error: 'GROQ_API_KEY نییە' }, { status: 500 });
     }
 
-    const systemPrompt = `تۆ یارمەتیدەری زیرەکی (AI) بۆ Alight Motionی. ناوت "یارمەتیدەری AI"یە.
+    const systemPrompt = `ناوت "یارمەتیدەری AI"یە. تەنها بە کوردیی سۆرانی وەڵام بدە. تەنها دەربارەی Alight Motion وەڵام بدە. ئەگەر پرسیار دەربارەی شتێکی دیکە بوو بڵێ "تەنها دەربارەی Alight Motion وەڵام دەدەم". وەڵامەکانت بە زانیاریی ئەمەی خوارەوە بن:
 
-دەستوورەکان:
-1. تەنها بە کوردیی سۆرانی وەڵام بدە
-2. تەنها دەربارەی Alight Motion وەڵام بدە
-3. ئەگەر پرسیار دەربارەی شتی دیکە بوو، بڵێ "تەنها دەربارەی Alight Motion وەڵام دەدەم"
-4. وەڵامەکانت کورت، ڕوون و بەسوود بن
-5. ئەگەر پرسیاری ناڕوون بوو، زیاتر وردبکەرەوە
-
-زانیاریەکانت:
 ${ALIGHT_MOTION_KNOWLEDGE}`;
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            role: 'user',
-            parts: [{ text: systemPrompt + '\n\nپرسیاری بەکارهێنەر: ' + message }]
-          }],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 1024,
-          }
-        })
-      }
-    );
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      })
+    });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error('Gemini error:', errText);
-      return Response.json({ error: 'هەڵەی Gemini: ' + geminiRes.status }, { status: 500 });
+    if (!groqRes.ok) {
+      const errText = await groqRes.text();
+      console.error('Groq error:', groqRes.status, errText);
+      return Response.json({ error: 'هەڵەی سێرڤەر: ' + groqRes.status }, { status: 500 });
     }
 
-    const data = await geminiRes.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data = await groqRes.json();
+    const reply = data?.choices?.[0]?.message?.content;
 
     if (!reply) {
       return Response.json({ error: 'وەڵامی نەهات' }, { status: 500 });
     }
 
     return Response.json({ reply }, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      }
+      headers: { 'Access-Control-Allow-Origin': '*' }
     });
 
   } catch (error) {
-    console.error('Server error:', error);
-    return Response.json({ error: 'هەڵەی سێرڤەر: ' + error.message }, { status: 500 });
+    console.error('Error:', error);
+    return Response.json({ error: 'هەڵە: ' + error.message }, { status: 500 });
   }
 }
 
